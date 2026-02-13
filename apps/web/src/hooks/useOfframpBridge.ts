@@ -264,8 +264,10 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
                 setOfframpData(offrampRes.data);
 
                 // Step 2: Calculate bridge fees using Allbridge SDK
+                console.log("offrampRes.data", offrampRes.data.depositAmount);
                 const depositAmount = offrampRes.data.depositAmount.toString();
                 const quoteResult = await allbridgeService.getBridgeQuote(depositAmount);
+
 
                 setBridgeQuote(quoteResult);
 
@@ -363,6 +365,7 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
     const startPayoutPolling = useCallback(() => {
         if (!offrampData?.reference) return;
         if (payoutPollRef.current) clearInterval(payoutPollRef.current);
+        console.log("polling reference:", offrampData.reference)
         payoutPollRef.current = setInterval(async () => {
             try {
                 const res = await offrampService.getQuoteStatus(offrampData.reference, address || undefined);

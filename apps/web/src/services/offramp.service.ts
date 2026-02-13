@@ -21,6 +21,32 @@ const getHeaders = (walletId?: string) => ({
 
 export const offrampService = {
     /**
+     * Sync wallet address with backend
+     */
+    async syncWallet(walletId: string): Promise<{ success: boolean; message: string }> {
+        try {
+            const res = await fetch(`${OFFRAMP_API_BASE}/sync`, {
+                method: "GET",
+                headers: getHeaders(walletId),
+            });
+
+            const data = await res.json();
+            if (!res.ok) {
+                const errorMessage = data.info?.message || data.message || "Failed to sync wallet";
+                throw new Error(errorMessage);
+            }
+
+            return { success: true, message: data.message || "Wallet synced" };
+        } catch (error) {
+            console.error("Wallet sync failed:", error);
+            return {
+                success: false,
+                message: error instanceof Error ? error.message : "Sync failed",
+            };
+        }
+    },
+
+    /**
      * Get aggregated rates from all compatible providers.
      * For Stellar offramp, we always request network=polygon since we bridge to Polygon.
      */
@@ -84,13 +110,14 @@ export const offrampService = {
             const data = await res.json();
 
             if (!res.ok) {
+                const errorMessage = data.info?.message || data.message || data.error || "Failed to create offramp";
                 return {
                     success: false,
-                    error: data.message || data.error || "Failed to create offramp",
+                    error: errorMessage,
                 };
             }
 
-            return { success: true, data };
+            return { success: true, data: data.data || data };
         } catch (error) {
             return {
                 success: false,
@@ -121,9 +148,10 @@ export const offrampService = {
             const data = await res.json();
 
             if (!res.ok) {
+                const errorMessage = data.info?.message || data.message || data.error || "Failed to fetch bank list";
                 return {
                     success: false,
-                    error: data.message || data.error || "Failed to fetch bank list",
+                    error: errorMessage,
                 };
             }
 
@@ -284,6 +312,7 @@ export const offrampService = {
             );
 
             const data = await res.json();
+            console.log("data", data);      
 
             if (!res.ok) {
                 return {

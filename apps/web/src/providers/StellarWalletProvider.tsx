@@ -13,6 +13,8 @@ import {
   allowAllModules,
 } from "@creit.tech/stellar-wallets-kit";
 
+import { offrampService } from "@/services/offramp.service";
+
 export type WalletId = string;
 
 interface WalletContextType {
@@ -74,6 +76,9 @@ export const StellarWalletProvider = ({
       setAddress(savedAddress);
       setSelectedWalletId(savedWalletId);
       walletKit.setWallet(savedWalletId);
+
+      // Sync with backend on session restoration
+      offrampService.syncWallet(savedAddress);
     }
   }, [network]);
 
@@ -126,6 +131,9 @@ export const StellarWalletProvider = ({
       localStorage.setItem("stellar_wallet_id", walletId);
       localStorage.setItem("stellar_wallet_network", network);
       setIsModalOpen(false);
+
+      // Sync with backend on new connection
+      offrampService.syncWallet(address);
     } catch (error: any) {
       console.error("Connection failed details:", error);
 
