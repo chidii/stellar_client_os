@@ -12,6 +12,9 @@ import {
   WalletNetwork,
   allowAllModules,
 } from "@creit.tech/stellar-wallets-kit";
+import { AlertCircle } from "lucide-react";
+
+import { safeGetItem, safeSetItem, safeRemoveItem, isStorageAvailable } from "@/utils/safe-storage";
 
 import { offrampService } from "@/services/offramp.service";
 
@@ -58,9 +61,12 @@ export const StellarWalletProvider = ({
   );
   const [kit, setKit] = useState<StellarWalletsKit | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isPersistenceAvailable, setIsPersistenceAvailable] = useState(true);
 
   // Initialize kit and handle persistence
   useEffect(() => {
+    setIsPersistenceAvailable(isStorageAvailable());
+
     const walletKit = new StellarWalletsKit({
       network: network,
       modules: allowAllModules(),
@@ -68,9 +74,9 @@ export const StellarWalletProvider = ({
     setKit(walletKit);
 
     // RESTORE SESSION
-    const savedAddress = localStorage.getItem("stellar_wallet_address");
-    const savedWalletId = localStorage.getItem("stellar_wallet_id");
-    const savedNetwork = localStorage.getItem("stellar_wallet_network");
+    const savedAddress = safeGetItem("stellar_wallet_address");
+    const savedWalletId = safeGetItem("stellar_wallet_id");
+    const savedNetwork = safeGetItem("stellar_wallet_network");
 
     if (savedAddress && savedWalletId && savedNetwork === network) {
       setAddress(savedAddress);
@@ -85,9 +91,9 @@ export const StellarWalletProvider = ({
   const disconnect = useCallback(async () => {
     setAddress(null);
     setSelectedWalletId(null);
-    localStorage.removeItem("stellar_wallet_address");
-    localStorage.removeItem("stellar_wallet_id");
-    localStorage.removeItem("stellar_wallet_network");
+    safeRemoveItem("stellar_wallet_address");
+    safeRemoveItem("stellar_wallet_id");
+    safeRemoveItem("stellar_wallet_network");
   }, []);
 
   const setNetwork = (newNetwork: WalletNetwork) => {
@@ -127,9 +133,9 @@ export const StellarWalletProvider = ({
 
       setAddress(address);
       setSelectedWalletId(walletId);
-      localStorage.setItem("stellar_wallet_address", address);
-      localStorage.setItem("stellar_wallet_id", walletId);
-      localStorage.setItem("stellar_wallet_network", network);
+      safeSetItem("stellar_wallet_address", address);
+      safeSetItem("stellar_wallet_id", walletId);
+      safeSetItem("stellar_wallet_network", network as string);
       setIsModalOpen(false);
 
       // Sync with backend on new connection
@@ -197,6 +203,12 @@ export const StellarWalletProvider = ({
       }}
     >
       {children}
+      {!isPersistenceAvailable && (
+        <div className="fixed bottom-4 right-4 z-50 px-3 py-2 bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 text-xs rounded-md shadow-lg flex items-center gap-2">
+          <AlertCircle className="w-4 h-4" />
+          <span>Private browsing mode: Wallet connection will not be saved.</span>
+        </div>
+      )}
     </WalletContext.Provider>
   );
 };
