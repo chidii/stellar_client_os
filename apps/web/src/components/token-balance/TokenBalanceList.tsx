@@ -17,7 +17,11 @@ import {
 } from "@/services/errors";
 import { WalletNetwork } from "@creit.tech/stellar-wallets-kit";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Wallet } from "lucide-react";
+import { Wallet, RefreshCw } from "lucide-react";
+import { isAbortError } from "@/utils/retry";
+import { notify } from "@/utils/notification";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { format } from "date-fns";
 
 /**
  * TokenBalanceList Component
@@ -79,106 +83,50 @@ import { Wallet } from "lucide-react";
  * - Automatically refetches when wallet address or network changes
  */
 export function TokenBalanceList({ className = "" }: TokenBalanceListProps) {
-  // Component state
-  const [balances, setBalances] = useState<TokenBalanceData[] | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<Error | null>(null);
-
-  // Access wallet context
   const { address, isConnected, network } = useWallet();
+  const queryClient = useQueryClient();
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  // Fetch balances when address changes
-  useEffect(() => {
-    // Reset state when no wallet is connected
-    if (!isConnected || !address) {
-      setBalances(null);
-      setLoading(false);
-      setError(null);
-      return;
-    }
+  const { data: balances, isLoading: loading, error, refetch, isRefetching } = useQuery({
+    queryKey: ["token-balances", address, network],
+    queryFn: async ({ signal }: { signal: AbortSignal }) => {
+      if (!address) return null;
 
-    // Cancellation flag - set to true when effect cleanup runs
-    // This prevents race conditions where stale responses overwrite newer state
-    let cancelled = false;
+      const isTestnet = network === WalletNetwork.TESTNET;
+      const stellarService = new StellarService({
+        network: {
+          networkPassphrase: isTestnet
+            ? "Test SDF Network ; September 2015"
+            : "Public Global Stellar Network ; September 2015",
+          rpcUrl: isTestnet
+            ? "https://soroban-testnet.stellar.org"
+            : "https://soroban.stellar.org",
+          horizonUrl: isTestnet
+            ? "https://horizon-testnet.stellar.org"
+            : "https://horizon.stellar.org",
+        },
+        contracts: {
+          paymentStream: "",
+          distributor: "",
+        },
+      });
 
-    // Fetch balances
-    const fetchBalances = async () => {
-      setLoading(true);
-      setError(null);
+      const accountInfo = await stellarService.getAccount(address, signal);
+      const extractedBalances = extractBalances(accountInfo);
+      const sortedBalances = sortTokenBalances(extractedBalances);
+      
+      setLastUpdated(new Date());
+      return sortedBalances;
+    },
+    enabled: isConnected && !!address,
+    refetchInterval: 30000, // Auto-refresh every 30s
+    refetchIntervalInBackground: false, // Save network requests when tab is inactive
+    retry: 2,
+  });
 
-      try {
-        // Initialize StellarService with network configuration based on wallet network
-        // Contract addresses are not needed for getAccount() as it only uses Horizon API
-        const isTestnet = network === WalletNetwork.TESTNET;
-        const stellarService = new StellarService({
-          network: {
-            networkPassphrase: isTestnet
-              ? "Test SDF Network ; September 2015"
-              : "Public Global Stellar Network ; September 2015",
-            rpcUrl: isTestnet
-              ? "https://soroban-testnet.stellar.org"
-              : "https://soroban.stellar.org",
-            horizonUrl: isTestnet
-              ? "https://horizon-testnet.stellar.org"
-              : "https://horizon.stellar.org",
-          },
-          contracts: {
-            // Empty contract addresses are fine for getAccount() which only uses Horizon API
-            paymentStream: "",
-            distributor: "",
-          },
-        });
-
-        // Fetch account data from Horizon API
-        const accountInfo = await stellarService.getAccount(address);
-
-        // Transform Horizon response to TokenBalanceData format
-        const extractedBalances = extractBalances(accountInfo);
-
-        // Sort balances with XLM first, then alphabetically
-        const sortedBalances = sortTokenBalances(extractedBalances);
-
-        // Only update state if this request hasn't been cancelled (Requirement 2.3)
-        if (!cancelled) {
-          setBalances(sortedBalances);
-        }
-      } catch (err) {
-        // Log detailed error information for debugging (Requirement 9.4)
-        console.error("Failed to fetch token balances:", {
-          address,
-          network,
-          error: err instanceof Error ? err.message : String(err),
-          stack: err instanceof Error ? err.stack : undefined,
-          errorType: err instanceof Error ? err.constructor.name : typeof err,
-          timestamp: new Date().toISOString(),
-        });
-
-        // Convert to Error object if needed
-        const error =
-          err instanceof Error
-            ? err
-            : new Error(String(err || "Unknown error"));
-
-        // Only update error state if this request hasn't been cancelled (Requirement 2.3)
-        if (!cancelled) {
-          setError(error);
-        }
-      } finally {
-        // Only update loading state if this request hasn't been cancelled (Requirement 2.3)
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
-
-    fetchBalances();
-
-    // Cleanup function - mark this request as cancelled (Requirement 2.5)
-    // This runs when dependencies change or component unmounts
-    return () => {
-      cancelled = true;
-    };
-  }, [address, isConnected, network]);
+  const handleManualRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["token-balances", address, network] });
+  };
 
   // Render: No wallet connected
   if (!isConnected || !address) {
@@ -196,7 +144,7 @@ export function TokenBalanceList({ className = "" }: TokenBalanceListProps) {
   // Render: Loading state
   if (loading) {
     return (
-      <div className={`space-y-3 ${className}`}>
+      <div className={`space-y-3 ${className}`} aria-busy="true" aria-label="Loading token balances">
         {/* Skeleton loading placeholders matching token balance layout */}
         {/* Requirements 4.1, 4.2, 4.3: Use Skeleton component from UI library */}
         {[1, 2, 3].map((i) => (
@@ -292,7 +240,7 @@ export function TokenBalanceList({ className = "" }: TokenBalanceListProps) {
       >
         <div className="mb-4 flex justify-center">
             <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center">
-                <WalletIcon className="w-6 h-6 text-zinc-500" />
+                <Wallet className="w-6 h-6 text-zinc-500" />
             </div>
         </div>
         <h3 className="text-zinc-50 font-medium mb-1">No tokens found</h3>
@@ -319,16 +267,39 @@ export function TokenBalanceList({ className = "" }: TokenBalanceListProps) {
 
   // Render: Success state with token list
   return (
-    <div className={`space-y-3 ${className}`}>
-      {balances?.map((balance) => (
-        <TokenBalance
-          key={`${balance.assetCode}-${balance.assetIssuer || "native"}`}
-          assetCode={balance.assetCode}
-          assetIssuer={balance.assetIssuer}
-          balance={balance.balance}
-          iconUrl={balance.iconUrl}
-        />
-      ))}
+    <div className={`space-y-4 ${className}`} aria-live="polite" aria-label="Token balances">
+      {/* Header with Refresh button and Last Updated timestamp */}
+      <div className="flex items-center justify-between px-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Balances</span>
+          {lastUpdated && (
+            <span className="text-[10px] text-zinc-600 bg-zinc-900 px-2 py-0.5 rounded-full border border-zinc-800/50">
+              Updated {format(lastUpdated, "HH:mm:ss")}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={handleManualRefresh}
+          disabled={isRefetching}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-all border border-transparent hover:border-zinc-700 disabled:opacity-50"
+          title="Manual refresh"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isRefetching ? "animate-spin" : ""}`} />
+          {isRefetching ? "Refreshing..." : "Refresh"}
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        {balances?.map((balance) => (
+          <TokenBalance
+            key={`${balance.assetCode}-${balance.assetIssuer || "native"}`}
+            assetCode={balance.assetCode}
+            assetIssuer={balance.assetIssuer}
+            balance={balance.balance}
+            iconUrl={balance.iconUrl}
+          />
+        ))}
+      </div>
     </div>
   );
 }

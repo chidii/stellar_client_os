@@ -11,6 +11,8 @@ import OfframpSuccessModal from "@/components/offramp/OfframpSuccessModal";
 import DashboardLayout from "@/components/layouts/DashboardLayout";
 import ProtectedRoute from "@/components/layouts/ProtectedRoute";
 import { useTransactionGuard } from "@/hooks/useTransactionGuard";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
+import { ErrorFallback } from "@/components/ui/error-fallback";
 
 export default function OfframpPage() {
     const {
@@ -34,6 +36,8 @@ export default function OfframpPage() {
         payoutStatus,
         reset,
         goBack,
+        currentTokenBalance,
+        isLoadingBalance,
     } = useOfframpBridge();
 
     const [showQuoteModal, setShowQuoteModal] = useState(false);
@@ -108,6 +112,25 @@ export default function OfframpPage() {
 
                     {/* Main Content */}
                     <div className="space-y-8">
+                <ErrorBoundary
+                    boundaryName="offramp-module"
+                    fallback={({ error, reset }) => (
+                        <ErrorFallback
+                            title="Offramp Unavailable"
+                            description="The offramp module hit an unexpected error."
+                            error={error}
+                            onRetry={reset}
+                        />
+                    )}
+                >
+                    <div className="space-y-8 pb-10">
+                        {/* Intro text */}
+                        <p className="text-fundable-light-grey max-w-2xl px-2">
+                            Withdraw Stellar USDC instantly to your bank account in Nigeria, Ghana, or Kenya.
+                        </p>
+
+                        {/* Main Content */}
+                        <div className="space-y-8">
                         {/* Error Banner */}
                         {error && !["signing", "bridging", "processing", "failed"].includes(step) && (
                             <div className="max-w-4xl mx-auto px-6 py-4 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center gap-3">
@@ -124,8 +147,8 @@ export default function OfframpPage() {
                                     <OfframpForm
                                         formState={formState}
                                         onChange={handleFormChange}
-                                        maxBalance="1000" // Optional: fetch from wallet
-                                        onMaxClick={() => handleMaxClick("1000")}
+                                        maxBalance={isLoadingBalance ? "Loading..." : currentTokenBalance}
+                                        onMaxClick={handleMaxClick}
                                     />
                                 </div>
 
@@ -184,9 +207,8 @@ export default function OfframpPage() {
                                 </button>
                             </div>
                         )}
+                        </div>
                     </div>
-                </div>
-            </ProtectedRoute>
 
             {/* Modals outside scroll area */}
             <OfframpQuoteModal
@@ -209,6 +231,28 @@ export default function OfframpPage() {
                     setShowSuccessModal(false);
                 }}
             />
+                    {/* Modals outside scroll area */}
+                    <OfframpQuoteModal
+                        isOpen={showQuoteModal}
+                        offrampData={offrampData}
+                        feeBreakdown={feeBreakdown}
+                        formState={formState}
+                        onClose={handleCloseQuoteModal}
+                        onConfirm={confirmAndBridge}
+                        isLoading={isLoading}
+                    />
+
+                    <OfframpSuccessModal
+                        isOpen={showSuccessModal}
+                        feeBreakdown={feeBreakdown}
+                        payoutStatus={payoutStatus}
+                        bridgeTxHash={bridgeTxHash}
+                        onClose={() => {
+                            setShowSuccessModal(false);
+                        }}
+                    />
+                </ErrorBoundary>
+            </ProtectedRoute>
         </DashboardLayout>
     );
 }

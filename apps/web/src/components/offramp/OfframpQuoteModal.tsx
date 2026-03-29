@@ -1,12 +1,19 @@
 "use client";
-
-import { useEffect, useCallback } from "react";
+ 
+import React, { useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, X } from "lucide-react";
-
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+} from "@/components/ui/dialog";
+ 
 import type { CreateOfframpResponse, OfframpFormState, BridgeFeeBreakdown } from "@/types/offramp";
 import { getCurrencySymbol } from "@/types/offramp";
-
+ 
 interface OfframpQuoteModalProps {
     isOpen: boolean;
     offrampData: CreateOfframpResponse["data"] | null;
@@ -16,7 +23,7 @@ interface OfframpQuoteModalProps {
     onConfirm: () => void;
     isLoading: boolean;
 }
-
+ 
 export default function OfframpQuoteModal({
     isOpen,
     offrampData,
@@ -26,50 +33,28 @@ export default function OfframpQuoteModal({
     onConfirm,
     isLoading,
 }: OfframpQuoteModalProps) {
-    // Handle Escape key to close modal
-    const handleKeyDown = useCallback((e: KeyboardEvent) => {
-        if (e.key === "Escape" && !isLoading) {
-            onClose();
-        }
+    const handleClose = useCallback(() => {
+        if (!isLoading) onClose();
     }, [isLoading, onClose]);
-
-    useEffect(() => {
-        if (isOpen) {
-            document.addEventListener("keydown", handleKeyDown);
-            return () => document.removeEventListener("keydown", handleKeyDown);
-        }
-    }, [isOpen, handleKeyDown]);
-
-    if (!isOpen || !offrampData || !feeBreakdown) return null;
-
-    // Handle backdrop click
-    const handleBackdropClick = (e: React.MouseEvent) => {
-        if (e.target === e.currentTarget && !isLoading) {
-            onClose();
-        }
-    };
-
+ 
+    if (!offrampData || !feeBreakdown) return null;
+ 
     const currencySymbol = getCurrencySymbol(offrampData.currency);
-
+ 
     return (
-        <div
-            className="fixed inset-0 bg-fundable-dark/80 backdrop-blur-sm flex justify-center items-center z-50"
-            onClick={handleBackdropClick}
-        >
-            <div className="bg-fundable-mid-dark border border-fundable-purple rounded-2xl p-6 w-full max-w-md mx-4 relative">
-                {/* Close Button */}
-                <button
-                    onClick={onClose}
-                    disabled={isLoading}
-                    className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
-                >
-                    <X className="h-5 w-5" />
-                </button>
-
-                <h3 className="text-xl font-syne font-semibold text-white mb-6">
-                    Confirm Offramp
-                </h3>
-
+        <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
+            <DialogContent 
+                className="bg-fundable-mid-dark border border-fundable-purple p-6 w-full max-w-md mx-4 relative"
+            >
+                <DialogHeader>
+                    <DialogTitle id="offramp-quote-title" className="text-xl font-syne font-semibold text-white mb-6">
+                        Confirm Offramp
+                    </DialogTitle>
+                    <DialogDescription id="offramp-quote-desc" className="sr-only">
+                        Review the transaction breakdown and confirm your offramp request.
+                    </DialogDescription>
+                </DialogHeader>
+ 
                 <div className="space-y-4">
                     <div className="bg-fundable-dark p-4 rounded-lg">
                         <p className="text-fundable-light-grey text-sm">Total Payout</p>
@@ -77,7 +62,7 @@ export default function OfframpQuoteModal({
                             {currencySymbol}{offrampData.fiatAmount.toLocaleString()}
                         </p>
                     </div>
-
+ 
                     {/* Details Breakdown */}
                     <div className="space-y-3 bg-fundable-dark/50 p-4 rounded-lg border border-gray-800 text-sm">
                         <div className="flex justify-between items-center text-xs text-fundable-light-grey uppercase tracking-wider mb-1">
@@ -119,14 +104,14 @@ export default function OfframpQuoteModal({
                             <span className="text-white text-[10px] font-mono opacity-80">{offrampData.reference}</span>
                         </div>
                     </div>
-
+ 
                     {/* Bank Details */}
                     <div className="bg-fundable-dark p-4 rounded-lg">
                         <p className="text-fundable-light-grey text-sm mb-2">Bank Details</p>
                         <p className="text-white font-medium">{formState.accountName}</p>
                         <p className="text-white">{formState.accountNumber}</p>
                     </div>
-
+ 
                     {/* Actions */}
                     <div className="flex gap-4 mt-6">
                         <Button
@@ -153,7 +138,7 @@ export default function OfframpQuoteModal({
                         </Button>
                     </div>
                 </div>
-            </div>
-        </div>
+            </DialogContent>
+        </Dialog>
     );
 }
