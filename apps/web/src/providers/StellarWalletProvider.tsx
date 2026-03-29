@@ -55,9 +55,25 @@ export const StellarWalletProvider = ({
 }: {
   children: React.ReactNode;
 }) => {
-  const [address, setAddress] = useState<string | null>(null);
+  const [address, setAddress] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const savedAddress = safeGetItem("stellar_wallet_address");
+    const savedNetwork = safeGetItem("stellar_wallet_network");
+    if (savedNetwork === WalletNetwork.TESTNET) {
+      return savedAddress;
+    }
+    return null;
+  });
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("idle");
-  const [selectedWalletId, setSelectedWalletId] = useState<WalletId | null>(null);
+  const [selectedWalletId, setSelectedWalletId] = useState<WalletId | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const savedWalletId = safeGetItem("stellar_wallet_id");
+    const savedNetwork = safeGetItem("stellar_wallet_network");
+    if (savedNetwork === WalletNetwork.TESTNET) {
+      return savedWalletId as WalletId | null;
+    }
+    return null;
+  });
   const [network, setNetworkState] = useState<WalletNetwork>(WalletNetwork.TESTNET);
   const [kit, setKit] = useState<StellarWalletsKit | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -83,8 +99,6 @@ export const StellarWalletProvider = ({
     const savedNetwork = safeGetItem("stellar_wallet_network");
 
     if (savedAddress && savedWalletId && savedNetwork === network) {
-      setAddress(savedAddress);
-      setSelectedWalletId(savedWalletId);
       setConnectionStatus("connected");
       walletKit.setWallet(savedWalletId);
 
