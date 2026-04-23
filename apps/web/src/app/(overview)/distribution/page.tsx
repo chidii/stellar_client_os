@@ -44,6 +44,7 @@ export default function DistributionPage() {
   const [csvWarnings, setCsvWarnings] = React.useState<CSVWarning[]>([]);
 
   const [isProcessing, setIsProcessing] = React.useState(false);
+  const [showPreview, setShowPreview] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const pageRef = React.useRef<HTMLDivElement>(null);
 
@@ -100,8 +101,30 @@ export default function DistributionPage() {
   const { balanceError: distBalanceError, insufficientBalance: distInsufficientBalance } =
     useBalanceValidation(distributionTotal, selectedToken);
 
-  const handleDistribute = async () => {
+  const previewRecipients = React.useMemo(
+    () => state.recipients.filter((r) => r.address.trim()),
+    [state.recipients]
+  );
+
+  const previewTotal = React.useMemo(() => {
+    if (state.type === 'equal') {
+      const perAddress = parseFloat(state.totalAmount || '0');
+      return isNaN(perAddress) ? '0' : (perAddress * previewRecipients.length).toFixed(7).replace(/\.?0+$/, '');
+    }
+    const sum = previewRecipients.reduce((acc, r) => {
+      const n = parseFloat(r.amount || '0');
+      return acc + (isNaN(n) ? 0 : n);
+    }, 0);
+    return sum.toFixed(7).replace(/\.?0+$/, '');
+  }, [state.type, state.totalAmount, previewRecipients]);
+
+  const handleDistribute = () => {
+    setShowPreview(true);
+  };
+
+  const handleConfirmDistribute = async () => {
     await execute(state, tokenAddress);
+    setShowPreview(false);
   };
 
   const showMessage = (type: 'success' | 'error', message: string) => {
@@ -448,7 +471,78 @@ export default function DistributionPage() {
         >
           <div className="max-w-6xl mx-auto p-6 pb-12">
         {/* Header */}
-        <h1 className="text-xl font-semibold mb-8 text-zinc-100">Create Distribution</h1>
+        <h1 className="text-xl font-semibold mb-8 text-zinc-100">
+          {showPreview ? 'Review Distribution' : 'Create Distribution'}
+        </h1>
+
+        {/* ── Preview screen ── */}
+        {showPreview && (
+          <div className="space-y-6">
+            {/* Summary cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {[
+                { label: 'Token', value: selectedToken },
+                { label: 'Type', value: state.type === 'equal' ? 'Equal' : 'Weighted' },
+                { label: 'Recipients', value: previewRecipients.length.toString() },
+                { label: 'Total', value: `${previewTotal} ${selectedToken}` },
+              ].map(({ label, value }) => (
+                <div key={label} className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-4">
+                  <p className="text-xs text-zinc-500 mb-1">{label}</p>
+                  <p className="text-sm font-semibold text-zinc-100 truncate">{value}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Recipients table */}
+            <div className="border border-zinc-800 rounded-lg overflow-hidden bg-zinc-900/30">
+              <div className="max-h-[480px] overflow-y-auto">
+                <Table>
+                  <TableHeader className="sticky top-0 bg-zinc-900/90 backdrop-blur-sm z-10">
+                    <TableRow className="border-zinc-800">
+                      <TableHead className="w-12 text-zinc-400">#</TableHead>
+                      <TableHead className="text-zinc-400">Address</TableHead>
+                      <TableHead className="w-40 text-right text-zinc-400">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {previewRecipients.map((r, i) => {
+                      const amount =
+                        state.type === 'equal'
+                          ? `${state.totalAmount || '0'} ${selectedToken}`
+                          : `${r.amount || '0'} ${selectedToken}`;
+                      return (
+                        <TableRow key={r.id} className="border-zinc-800">
+                          <TableCell className="text-zinc-500">{i + 1}</TableCell>
+                          <TableCell className="font-mono text-xs text-zinc-300 max-w-[340px] truncate">
+                            {r.address}
+                          </TableCell>
+                          <TableCell className="text-right text-zinc-300">{amount}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+
+            {/* Preview actions */}
+            <div className="flex justify-between pt-2">
+              <Button variant="outline" onClick={() => setShowPreview(false)}>
+                ← Back to Edit
+              </Button>
+              <Button
+                className="bg-purple-600 hover:bg-purple-700"
+                disabled={isSubmitting}
+                onClick={handleConfirmDistribute}
+              >
+                {isSubmitting ? 'Distributing...' : 'Confirm & Sign'}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Form (hidden while previewing) ── */}
+        {!showPreview && (<>
 
         {/* Controls Row */}
         <div className="flex items-center justify-between mb-6">
@@ -654,9 +748,10 @@ export default function DistributionPage() {
             disabled={state.recipients.length === 0 || isSubmitting || distInsufficientBalance}
             onClick={handleDistribute}
           >
-            {isSubmitting ? 'Distributing...' : 'Distribute Token'}
+            {isSubmitting ? 'Distributing...' : 'Review & Distribute'}
           </Button>
         </div>
+        </>)}
           </div>
         </div>
       </ErrorBoundary>
