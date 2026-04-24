@@ -17,6 +17,7 @@ import ProtectedRoute from '@/components/layouts/ProtectedRoute';
 import { CSVErrorDisplay } from '@/components/molecules/CSVErrorDisplay';
 import { CSVError, CSVWarning } from '@/types/distribution';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { Skeleton } from '@/components/ui/skeleton';
 import { notify } from '@/utils/notification';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { ErrorFallback } from '@/components/ui/error-fallback';
@@ -467,6 +468,35 @@ export default function DistributionPage() {
   const shouldVirtualize = state.recipients.length >= VIRTUALIZE_THRESHOLD;
   const RecipientTableComponent = shouldVirtualize ? VirtualizedRecipientTable : StandardRecipientTable;
 
+  const SKELETON_ROW_COUNT = 5;
+
+  const RecipientTableSkeleton = () => (
+    <div className="border border-zinc-800 rounded-lg mb-6 bg-zinc-900/30">
+      <Table>
+        <TableHeader className="sticky top-0 bg-zinc-900/90 backdrop-blur-sm z-10">
+          <TableRow className="border-zinc-800">
+            <TableHead className="w-12 text-zinc-400">#</TableHead>
+            <TableHead className="text-zinc-400">Address</TableHead>
+            <TableHead className="w-24 text-right text-zinc-400">
+              {state.type === 'weighted' ? 'Amount' : '0'}
+            </TableHead>
+            <TableHead className="w-12"></TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {Array.from({ length: SKELETON_ROW_COUNT }).map((_, i) => (
+            <TableRow key={i} className="border-zinc-800">
+              <TableCell><Skeleton className="h-4 w-4 bg-zinc-800" /></TableCell>
+              <TableCell><Skeleton className="h-4 w-full bg-zinc-800/60" /></TableCell>
+              <TableCell className="text-right"><Skeleton className="h-4 w-12 ml-auto bg-zinc-800/60" /></TableCell>
+              <TableCell><Skeleton className="h-6 w-6 rounded bg-zinc-800/40" /></TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+
   return (
     <ProtectedRoute description="Connect your Stellar wallet to create token distributions.">
       <ErrorBoundary
@@ -666,10 +696,18 @@ export default function DistributionPage() {
 
         {/* Recipients Table */}
         <div className="relative">
-          <RecipientTableComponent />
+          {isProcessing ? (
+            <>
+              <p className="text-sm text-zinc-400 mb-2 flex items-center gap-2">
+                <span className="inline-block h-2 w-2 rounded-full bg-purple-500 animate-pulse" />
+                Validating recipients...
+              </p>
+              <RecipientTableSkeleton />
+            </>
+          ) : (
+            <RecipientTableComponent />
+          )}
         </div>
-        
-        {/* Scroll indicator for large lists - Removed as table is full height */}
 
         {/* Action Buttons */}
         <div className="flex justify-between">
