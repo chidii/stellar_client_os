@@ -654,9 +654,20 @@ export default function DistributionPage() {
 
         {/* CSV Upload Area */}
         <div
-          className="border-2 border-dashed border-zinc-700 rounded-lg p-8 mb-6 text-center bg-zinc-900/50"
+          role="button"
+          tabIndex={isProcessing ? -1 : 0}
+          aria-label="CSV upload area. Drag and drop a CSV file here, or press Enter or Space to open the file picker."
+          aria-disabled={isProcessing}
+          className="border-2 border-dashed border-zinc-700 rounded-lg p-8 mb-6 text-center bg-zinc-900/50 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:border-purple-500"
           onDragOver={handleDragOver}
           onDrop={handleDrop}
+          onClick={!isProcessing ? handleSelectFile : undefined}
+          onKeyDown={(e) => {
+            if (!isProcessing && (e.key === 'Enter' || e.key === ' ')) {
+              e.preventDefault();
+              handleSelectFile();
+            }
+          }}
         >
           <div className="flex flex-col items-center gap-4">
             <Upload className="h-12 w-12 text-zinc-500" />
@@ -665,6 +676,7 @@ export default function DistributionPage() {
               <p className="text-sm text-zinc-500">
                 CSV format: {state.type === 'equal' ? 'address (one per line)' : 'address,amount (one per line)'}
               </p>
+              <p className="text-xs text-zinc-600 mt-1">Keyboard: Tab to focus, Enter or Space to open file picker</p>
             </div>
             <div className="flex gap-2">
               <input
@@ -677,14 +689,14 @@ export default function DistributionPage() {
               />
               <Button 
                 variant="outline" 
-                onClick={handleSelectFile}
+                onClick={(e) => { e.stopPropagation(); handleSelectFile(); }}
                 disabled={isProcessing}
               >
                 {isProcessing ? 'Processing...' : 'Select File'}
               </Button>
               <Button 
                 variant="outline" 
-                onClick={handleDownloadTemplate}
+                onClick={(e) => { e.stopPropagation(); handleDownloadTemplate(); }}
                 className="text-purple-400 border-purple-400 hover:bg-purple-400/10"
                 disabled={isProcessing}
               >
