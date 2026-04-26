@@ -35,18 +35,54 @@ const POLL_INTERVAL_MS = 2_000;
  *  4. `deployContract`     — instantiate the contract (returns contractId)
  *
  * Or use the convenience method `uploadAndDeploy` to do both in one call.
+ *
+ * ### Network passphrase
+ * Providing `networkPassphrase` in the config is **optional**. When omitted, it
+ * is fetched automatically from the RPC server the first time a transaction is
+ * built (lazy resolution). The result is cached so only one RPC round-trip is
+ * ever made. Use the async factory `ContractDeployer.create(config)` if you
+ * prefer to resolve the passphrase eagerly during initialisation:
+ *
+ * ```ts
+ * // Lazy (zero extra round-trip until first transaction)
+ * const deployer = new ContractDeployer({ rpcUrl: '...' });
+ *
+ * // Eager (passphrase ready before any transaction call)
+ * const deployer = await ContractDeployer.create({ rpcUrl: '...' });
+ * ```
  */
 export class ContractDeployer {
   private readonly rpc: Server;
-  private readonly networkPassphrase: string;
+  private readonly networkPassphrase: string | undefined;
   private readonly baseFee: string;
   private readonly timeoutSeconds: number;
+  /** Cached promise so the RPC fetch happens at most once. */
+  private passphrasePromise: Promise<string> | undefined;
 
   constructor(config: DeployerConfig) {
     this.rpc = new Server(config.rpcUrl, { allowHttp: true });
     this.networkPassphrase = config.networkPassphrase;
     this.baseFee = config.baseFee ?? DEFAULT_BASE_FEE;
     this.timeoutSeconds = config.timeoutSeconds ?? DEFAULT_TIMEOUT;
+  }
+
+  // ─── Async factory ─────────────────────────────────────────────────────────
+
+  /**
+   * Async factory that resolves the network passphrase from the RPC server
+   * **before** returning the deployer instance. Use this when you want the
+   * passphrase to be guaranteed available synchronously from the very first
+   * method call.
+   *
+   * ```ts
+   * const deployer = await ContractDeployer.create({ rpcUrl: 'https://...' });
+   * ```
+   */
+  static async create(config: DeployerConfig): Promise<ContractDeployer> {
+    const deployer = new ContractDeployer(config);
+    // Eagerly resolve — result is cached in passphrasePromise
+    await deployer.resolveNetworkPassphrase();
+    return deployer;
   }
 
   // ─── Static factory helpers ────────────────────────────────────────────────
@@ -67,6 +103,21 @@ export class ContractDeployer {
     });
   }
 
+  // ─── Network passphrase resolution ─────────────────────────────────────────
+
+  /**
+   * Returns the network passphrase, fetching it lazily from the RPC server if
+   * it was not supplied in the constructor config.
+   *
+   * The RPC request is made **at most once** — subsequent calls return the
+   * cached value.
+   *
+   * @throws {DeployerError} When the RPC `getNetwork` call fails.
+   */
+  async getNetworkPassphrase(): Promise<string> {
+    return this.resolveNetworkPassphrase();
+  }
+
   // ─── Fee / resource estimation ─────────────────────────────────────────────
 
   /**
@@ -79,7 +130,7 @@ export class ContractDeployer {
   async estimateUploadFee(wasm: Buffer | Uint8Array, deployer: Keypair): Promise<FeeEstimate> {
     this.assertValidWasm(wasm);
     const account = await this.loadAccount(deployer.publicKey());
-    const tx = this.buildUploadTx(wasm, account);
+    const tx = await this.buildUploadTx(wasm, account);
     return this.simulate(tx);
   }
 
@@ -97,7 +148,7 @@ export class ContractDeployer {
     salt?: Buffer,
   ): Promise<FeeEstimate> {
     const account = await this.loadAccount(deployer.publicKey());
-    const tx = this.buildDeployTx(wasmHash, deployer.publicKey(), account, salt);
+    const tx = await this.buildDeployTx(wasmHash, deployer.publicKey(), account, salt);
     return this.simulate(tx);
   }
 
@@ -116,11 +167,11 @@ export class ContractDeployer {
     this.assertValidWasm(wasm);
 
     const account = await this.loadAccount(deployer.publicKey());
-    const tx = this.buildUploadTx(wasm, account);
+    const tx = await this.buildUploadTx(wasm, account);
 
     // Simulate to get resource footprint, then rebuild with correct fee
     const estimate = await this.simulate(tx);
-    const preparedTx = this.buildUploadTx(wasm, account, estimate.fee);
+    const preparedTx = await this.buildUploadTx(wasm, account, estimate.fee);
     preparedTx.sign(deployer);
 
     try {
@@ -158,7 +209,7 @@ export class ContractDeployer {
   ): Promise<ContractDeployResult> {
     const account = await this.loadAccount(deployer.publicKey());
     const estimate = await this.estimateDeployFee(wasmHash, deployer, salt);
-    const tx = this.buildDeployTx(wasmHash, deployer.publicKey(), account, salt, estimate.fee);
+    const tx = await this.buildDeployTx(wasmHash, deployer.publicKey(), account, salt, estimate.fee);
     tx.sign(deployer);
 
     try {
@@ -202,11 +253,12 @@ export class ContractDeployer {
 
   // ─── Private: transaction builders ────────────────────────────────────────
 
-  private buildUploadTx(
+  private async buildUploadTx(
     wasm: Buffer | Uint8Array,
     account: { id: string; sequenceNumber: () => string },
     fee = this.baseFee,
   ) {
+    const passphrase = await this.resolveNetworkPassphrase();
     const sourceAccount = {
       accountId: () => account.id,
       sequenceNumber: () => account.sequenceNumber(),
@@ -215,7 +267,7 @@ export class ContractDeployer {
 
     return new TransactionBuilder(sourceAccount as Parameters<typeof TransactionBuilder>[0], {
       fee,
-      networkPassphrase: this.networkPassphrase,
+      networkPassphrase: passphrase,
     })
       .addOperation(
         Operation.uploadContractWasm({ wasm: Buffer.from(wasm) })
@@ -224,13 +276,14 @@ export class ContractDeployer {
       .build();
   }
 
-  private buildDeployTx(
+  private async buildDeployTx(
     wasmHash: string,
     deployerAddress: string,
     account: { id: string; sequenceNumber: () => string },
     salt?: Buffer,
     fee = this.baseFee,
   ) {
+    const passphrase = await this.resolveNetworkPassphrase();
     const saltBytes = salt ?? this.randomSalt();
     const sourceAccount = {
       accountId: () => account.id,
@@ -240,7 +293,7 @@ export class ContractDeployer {
 
     return new TransactionBuilder(sourceAccount as Parameters<typeof TransactionBuilder>[0], {
       fee,
-      networkPassphrase: this.networkPassphrase,
+      networkPassphrase: passphrase,
     })
       .addOperation(
         Operation.createCustomContract({
@@ -345,6 +398,30 @@ export class ContractDeployer {
   }
 
   // ─── Private: helpers ──────────────────────────────────────────────────────
+
+  /**
+   * Resolves the network passphrase, fetching it from the RPC server exactly
+   * once if it was not provided in the config. Result is cached.
+   */
+  private resolveNetworkPassphrase(): Promise<string> {
+    if (this.networkPassphrase) {
+      return Promise.resolve(this.networkPassphrase);
+    }
+    if (!this.passphrasePromise) {
+      this.passphrasePromise = this.rpc.getNetwork().then(
+        (r) => r.passphrase,
+        (err: Error) => {
+          // Clear cache so a retry is possible after a transient failure
+          this.passphrasePromise = undefined;
+          throw new DeployerError(
+            `Failed to auto-detect network passphrase from RPC: ${err.message}`,
+            'PASSPHRASE_DETECTION_FAILED',
+          );
+        },
+      );
+    }
+    return this.passphrasePromise;
+  }
 
   private async loadAccount(address: string) {
     try {

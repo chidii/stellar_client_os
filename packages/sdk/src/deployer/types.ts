@@ -44,6 +44,15 @@ export interface DeployerConfig {
    * - Local: `http://localhost:8000`
    */
   rpcUrl: string;
+  /**
+   * Network passphrase for transaction signing.
+   *
+   * When omitted, the passphrase is automatically fetched from the RPC server
+   * via `getNetwork()` the first time a transaction is built. You can also call
+   * `ContractDeployer.create(config)` (async factory) to resolve it eagerly at
+   * construction time.
+   */
+  networkPassphrase?: string;
 
   /**
    * Network passphrase used to identify and sign transactions for the specific network.
@@ -53,7 +62,6 @@ export interface DeployerConfig {
    * - `Networks.TESTNET_NETWORK_PASSPHRASE` for testnet
    * - Custom passphrase string for private networks
    */
-  networkPassphrase: string;
 
   /**
    * Base fee in stroops (0.00001 XLM) for each transaction operation.
