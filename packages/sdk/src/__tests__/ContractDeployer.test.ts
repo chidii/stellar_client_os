@@ -26,6 +26,7 @@ const mockGetAccount = vi.fn();
 const mockSimulateTransaction = vi.fn();
 const mockSendTransaction = vi.fn();
 const mockGetTransaction = vi.fn();
+const mockGetNetwork = vi.fn();
 
 vi.mock('@stellar/stellar-sdk/rpc', () => ({
   Server: vi.fn().mockImplementation(() => ({
@@ -33,6 +34,7 @@ vi.mock('@stellar/stellar-sdk/rpc', () => ({
     simulateTransaction: mockSimulateTransaction,
     sendTransaction: mockSendTransaction,
     getTransaction: mockGetTransaction,
+    getNetwork: mockGetNetwork,
   })),
   Api: {
     isSimulationError: vi.fn((r: Record<string, unknown>) => r?.error !== undefined),
@@ -128,6 +130,7 @@ describe('ContractDeployer', () => {
     mockSimulateTransaction.mockResolvedValue(mockSimulationSuccess);
     mockSendTransaction.mockResolvedValue({ status: 'PENDING', hash: 'txhash123' });
     mockGetTransaction.mockResolvedValue({ status: 'SUCCESS', ledger: 42 });
+    mockGetNetwork.mockResolvedValue({ passphrase: 'Test SDF Network ; September 2015', protocolVersion: '20' });
   });
 
   // ── static factories ───────────────────────────────────────────────────────
@@ -349,6 +352,78 @@ describe('ContractDeployer', () => {
     it('FeeEstimationError has correct code', () => {
       const err = new FeeEstimationError('sim failed');
       expect(err.code).toBe('FEE_ESTIMATION_ERROR');
+    });
+  });
+
+  // ── network passphrase auto-detection ──────────────────────────────────────
+  describe('network passphrase auto-detection', () => {
+    it('fetches passphrase from RPC when not provided in config', async () => {
+      const autoDeployer = new ContractDeployer({
+        rpcUrl: 'https://soroban-testnet.stellar.org',
+        // networkPassphrase intentionally omitted
+      });
+      const passphrase = await autoDeployer.getNetworkPassphrase();
+      expect(passphrase).toBe('Test SDF Network ; September 2015');
+      expect(mockGetNetwork).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not call getNetwork when passphrase is already configured', async () => {
+      const passphrase = await deployer.getNetworkPassphrase();
+      expect(passphrase).toBe('Test SDF Network ; September 2015');
+      expect(mockGetNetwork).not.toHaveBeenCalled();
+    });
+
+    it('fetches passphrase only once across multiple calls (caching)', async () => {
+      const autoDeployer = new ContractDeployer({
+        rpcUrl: 'https://soroban-testnet.stellar.org',
+      });
+      await autoDeployer.getNetworkPassphrase();
+      await autoDeployer.getNetworkPassphrase();
+      await autoDeployer.getNetworkPassphrase();
+      expect(mockGetNetwork).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses auto-detected passphrase when building transactions', async () => {
+      const autoDeployer = new ContractDeployer({
+        rpcUrl: 'https://soroban-testnet.stellar.org',
+      });
+      // Should not throw — passphrase resolved from RPC before tx is built
+      await expect(autoDeployer.uploadWasm(VALID_WASM, mockKeypair)).resolves.toBeDefined();
+      expect(mockGetNetwork).toHaveBeenCalledTimes(1);
+    });
+
+    it('ContractDeployer.create() resolves passphrase eagerly', async () => {
+      const autoDeployer = await ContractDeployer.create({
+        rpcUrl: 'https://soroban-testnet.stellar.org',
+      });
+      // getNetwork must have been called during create()
+      expect(mockGetNetwork).toHaveBeenCalledTimes(1);
+      // Subsequent call must not hit the network again
+      await autoDeployer.getNetworkPassphrase();
+      expect(mockGetNetwork).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws DeployerError (PASSPHRASE_DETECTION_FAILED) when RPC getNetwork fails', async () => {
+      mockGetNetwork.mockRejectedValue(new Error('connection refused'));
+      const autoDeployer = new ContractDeployer({
+        rpcUrl: 'https://soroban-testnet.stellar.org',
+      });
+      await expect(autoDeployer.getNetworkPassphrase()).rejects.toThrow(
+        'Failed to auto-detect network passphrase from RPC: connection refused',
+      );
+    });
+
+    it('clears cache after a getNetwork failure so a retry succeeds', async () => {
+      const autoDeployer = new ContractDeployer({
+        rpcUrl: 'https://soroban-testnet.stellar.org',
+      });
+      // First call fails
+      mockGetNetwork.mockRejectedValueOnce(new Error('timeout'));
+      await expect(autoDeployer.getNetworkPassphrase()).rejects.toThrow();
+      // Second call succeeds (cache was cleared)
+      mockGetNetwork.mockResolvedValue({ passphrase: 'Test SDF Network ; September 2015', protocolVersion: '20' });
+      const passphrase = await autoDeployer.getNetworkPassphrase();
+      expect(passphrase).toBe('Test SDF Network ; September 2015');
     });
   });
 });

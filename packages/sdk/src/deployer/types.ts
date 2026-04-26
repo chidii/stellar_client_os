@@ -9,8 +9,15 @@ export type StellarNetwork = 'testnet' | 'mainnet' | 'custom';
 export interface DeployerConfig {
   /** Soroban RPC endpoint. */
   rpcUrl: string;
-  /** Network passphrase. */
-  networkPassphrase: string;
+  /**
+   * Network passphrase for transaction signing.
+   *
+   * When omitted, the passphrase is automatically fetched from the RPC server
+   * via `getNetwork()` the first time a transaction is built. You can also call
+   * `ContractDeployer.create(config)` (async factory) to resolve it eagerly at
+   * construction time.
+   */
+  networkPassphrase?: string;
   /**
    * Base fee in stroops for each transaction.
    * Defaults to 100 stroops (the Stellar base fee).
