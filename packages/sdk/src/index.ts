@@ -35,6 +35,7 @@ export * from "./utils/events";
 export * from "./utils/networkDetection";
 export * from "./utils/streamHistory";
 export * from "./utils/BalanceWatcher";
+export * from "./utils/transactions";
 
 // Export error handling utilities
 export {
