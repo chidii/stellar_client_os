@@ -6,6 +6,7 @@ import {
   xdr,
   hash,
   Address,
+  StrKey,
 } from '@stellar/stellar-sdk';
 import { Server, Api } from '@stellar/stellar-sdk/rpc';
 import type { DeployerConfig, WasmUploadResult, ContractDeployResult, FeeEstimate } from './types';
@@ -208,13 +209,15 @@ export class ContractDeployer {
     salt?: Buffer,
   ): Promise<ContractDeployResult> {
     const account = await this.loadAccount(deployer.publicKey());
-    const estimate = await this.estimateDeployFee(wasmHash, deployer, salt);
-    const tx = await this.buildDeployTx(wasmHash, deployer.publicKey(), account, salt, estimate.fee);
+    const resolvedSalt = salt ?? this.randomSalt();
+    const estimate = await this.estimateDeployFee(wasmHash, deployer, resolvedSalt);
+    const tx = await this.buildDeployTx(wasmHash, deployer.publicKey(), account, resolvedSalt, estimate.fee);
     tx.sign(deployer);
 
     try {
       const result = await this.submitAndWait(tx.toEnvelope().toXDR('base64'));
-      const contractId = this.deriveContractId(deployer.publicKey(), salt ?? result.txHash);
+      const passphrase = await this.resolveNetworkPassphrase();
+      const contractId = this.deriveContractId(deployer.publicKey(), resolvedSalt, passphrase);
       return {
         contractId,
         txHash: result.txHash,
@@ -445,14 +448,36 @@ export class ContractDeployer {
     return hash(Buffer.from(wasm)).toString('hex');
   }
 
-  private deriveContractId(deployerAddress: string, saltOrTxHash: Buffer | string): string {
-    // Return a placeholder — the real contract ID comes from the transaction result.
-    // In practice callers should read it from the transaction's return value.
-    return `derived:${deployerAddress.slice(0, 8)}:${
-      typeof saltOrTxHash === 'string'
-        ? saltOrTxHash.slice(0, 8)
-        : saltOrTxHash.toString('hex').slice(0, 8)
-    }`;
+  /**
+   * Derives the contract ID deterministically from the deployer address, salt,
+   * and network passphrase — **before** any transaction is submitted.
+   *
+   * Implements the standard Stellar contract ID derivation:
+   *   SHA-256( HashIdPreimage{ networkId: SHA-256(passphrase), preimage: ContractIdPreimageFromAddress } )
+   * encoded as a Stellar contract strkey (C…).
+   *
+   * @param deployerAddress   - G… Stellar account address of the deployer.
+   * @param salt              - 32-byte salt used in the create-contract transaction.
+   * @param networkPassphrase - Network passphrase (e.g. "Test SDF Network ; September 2015").
+   * @returns The contract address (C…) that will be assigned on deployment.
+   */
+  private deriveContractId(
+    deployerAddress: string,
+    salt: Buffer,
+    networkPassphrase: string,
+  ): string {
+    const preimage = xdr.HashIdPreimage.envelopeTypeContractId(
+      new xdr.HashIdPreimageContractId({
+        networkId: hash(Buffer.from(networkPassphrase)),
+        contractIdPreimage: xdr.ContractIdPreimage.contractIdPreimageFromAddress(
+          new xdr.ContractIdPreimageFromAddress({
+            address: new Address(deployerAddress).toScAddress(),
+            salt,
+          })
+        ),
+      })
+    );
+    return StrKey.encodeContract(hash(preimage.toXDR()));
   }
 
   private randomSalt(): Buffer {
